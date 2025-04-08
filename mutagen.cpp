@@ -470,6 +470,7 @@ void worker(Secp256K1* secp, int bit_length, int flip_count, int threadId, AVXCo
         startPointXNeg.ModNeg();
 
         for (int i = 0; i < POINTS_BATCH_SIZE; i += 4) {
+
             deltaX[i].ModSub(&plusPoints[i].x, &startPointX);
             deltaX[i+1].ModSub(&plusPoints[i+1].x, &startPointX);
             deltaX[i+2].ModSub(&plusPoints[i+2].x, &startPointX);
@@ -478,43 +479,52 @@ void worker(Secp256K1* secp, int bit_length, int flip_count, int threadId, AVXCo
         modGroup.Set(deltaX);
         modGroup.ModInv();
 
-        for (int i = 0; i < POINTS_BATCH_SIZE; i += 4) {
+        for (int i = 0; i < POINTS_BATCH_SIZE; i++) {
+            Int deltaY;
+            deltaY.ModSub(&plusPoints[i].y, &startPointY);
 
-            for (int j = 0; j < 4; j++) {
-                Int deltaY;
-                deltaY.ModSub(&plusPoints[i+j].y, &startPointY);
-                Int slope; slope.ModMulK1(&deltaY, &deltaX[i+j]);
-                Int slopeSq; slopeSq.ModSquareK1(&slope);
+            Int slope;
+            slope.ModMulK1(&deltaY, &deltaX[i]);
 
-                pointBatchX[i+j].Set(&startPointXNeg);
-                pointBatchX[i+j].ModAdd(&slopeSq);
-                pointBatchX[i+j].ModSub(&plusPoints[i+j].x);
+            Int slopeSq;
+            slopeSq.ModSquareK1(&slope);
 
-                Int diffX; diffX.ModSub(&startPointX, &pointBatchX[i+j]);
-                diffX.ModMulK1(&slope);
+            pointBatchX[i].Set(&startPointXNeg);
+            pointBatchX[i].ModAdd(&slopeSq);
+            pointBatchX[i].ModSub(&plusPoints[i].x);
 
-                pointBatchY[i+j].Set(&startPointY);
-                pointBatchY[i+j].ModNeg();
-                pointBatchY[i+j].ModAdd(&diffX);
-            }
+            Int diffX;
+            diffX.Set(&startPointX);
+            diffX.ModSub(&pointBatchX[i]);
+            diffX.ModMulK1(&slope);
 
-            for (int j = 0; j < 4; j++) {
-                Int deltaY;
-                deltaY.ModSub(&minusPoints[i+j].y, &startPointY);
-                Int slope; slope.ModMulK1(&deltaY, &deltaX[i+j]);
-                Int slopeSq; slopeSq.ModSquareK1(&slope);
+            pointBatchY[i].Set(&startPointY);
+            pointBatchY[i].ModNeg();
+            pointBatchY[i].ModAdd(&diffX);
+        }
 
-                pointBatchX[POINTS_BATCH_SIZE+i+j].Set(&startPointXNeg);
-                pointBatchX[POINTS_BATCH_SIZE+i+j].ModAdd(&slopeSq);
-                pointBatchX[POINTS_BATCH_SIZE+i+j].ModSub(&minusPoints[i+j].x);
+        for (int i = 0; i < POINTS_BATCH_SIZE; i++) {
+            Int deltaY;
+            deltaY.ModSub(&minusPoints[i].y, &startPointY);
 
-                Int diffX; diffX.ModSub(&startPointX, &pointBatchX[POINTS_BATCH_SIZE+i+j]);
-                diffX.ModMulK1(&slope);
+            Int slope;
+            slope.ModMulK1(&deltaY, &deltaX[i]);
 
-                pointBatchY[POINTS_BATCH_SIZE+i+j].Set(&startPointY);
-                pointBatchY[POINTS_BATCH_SIZE+i+j].ModNeg();
-                pointBatchY[POINTS_BATCH_SIZE+i+j].ModAdd(&diffX);
-            }
+            Int slopeSq;
+            slopeSq.ModSquareK1(&slope);
+
+            pointBatchX[POINTS_BATCH_SIZE + i].Set(&startPointXNeg);
+            pointBatchX[POINTS_BATCH_SIZE + i].ModAdd(&slopeSq);
+            pointBatchX[POINTS_BATCH_SIZE + i].ModSub(&minusPoints[i].x);
+
+            Int diffX;
+            diffX.Set(&startPointX);
+            diffX.ModSub(&pointBatchX[POINTS_BATCH_SIZE + i]);
+            diffX.ModMulK1(&slope);
+
+            pointBatchY[POINTS_BATCH_SIZE + i].Set(&startPointY);
+            pointBatchY[POINTS_BATCH_SIZE + i].ModNeg();
+            pointBatchY[POINTS_BATCH_SIZE + i].ModAdd(&diffX);
         }
 
         int localBatchCount = 0;
@@ -566,13 +576,13 @@ void worker(Secp256K1* secp, int bit_length, int flip_count, int threadId, AVXCo
                             Int foundKey;
                             foundKey.Set(&currentKey);
                             int idx = pointIndices[j];
-                            if (idx < POINTS_BATCH_SIZE) {
+                            if (idx < 256) {
                                 Int offset;
                                 offset.SetInt32(idx);
                                 foundKey.Add(&offset);
                             } else {
                                 Int offset;
-                                offset.SetInt32(idx - POINTS_BATCH_SIZE);
+                                offset.SetInt32(idx - 256);
                                 foundKey.Sub(&offset);
                             }
 
@@ -753,7 +763,7 @@ int main(int argc, char* argv[]) {
     cout << "\n";
 
     if (PUZZLE_NUM == 69 && FLIP_COUNT == 35) { 
-        cout << "*** WARNING: Flip count 35 is an ESTIMATE for Puzzle 69 and might be incorrect! ***\n";
+        cout << "*** WARNING: Flip count is an ESTIMATE for Puzzle 69 and might be incorrect! ***\n";
     }
     cout << "Total Flips: " << to_string_128(total_combinations) << "\n";
     cout << "Using: " << WORKERS << " threads\n";
@@ -822,7 +832,7 @@ int main(int argc, char* argv[]) {
         __uint128_t final_count = total_checked_avx.load();
         globalElapsedTime = chrono::duration<double>(chrono::high_resolution_clock::now() - tStart).count();
 
-        if (globalElapsedTime > 1e-9) {
+        if (globalElapsedTime > 1e-6) {
              mkeysPerSec = (double)globalComparedCount / globalElapsedTime / 1e6;
         } else {
              mkeysPerSec = 0.0;
