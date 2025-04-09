@@ -447,12 +447,23 @@ void worker(Secp256K1* secp, int bit_length, int flip_count, int threadId, AVXCo
         currentKey.Set(&BASE_KEY);
         const vector<int>& flips = gen.get();
 
+        alignas(32) uint64_t flipMasks[4] = {0}; // For 256-bit keys
+
+        // Set all flip bits in a batch
         for (int pos : flips) {
-            Int mask;
-            mask.SetInt32(1);
-            mask.ShiftL(pos);
-            currentKey.Xor(&mask);
+        int word = pos / 64;
+        int bit = pos % 64;
+        flipMasks[word] ^= (1ULL << bit);
         }
+
+        // Apply XOR in one AVX2 operation
+        __m256i keyVec = _mm256_loadu_si256((__m256i*)currentKey.bits64);
+        __m256i maskVec = _mm256_loadu_si256((__m256i*)flipMasks);
+        __m256i result = _mm256_xor_si256(keyVec, maskVec);
+        _mm256_storeu_si256((__m256i*)currentKey.bits64, result);
+
+        // Clear masks (optional, if reused)
+        memset(flipMasks, 0, sizeof(flipMasks));
 
         string keyStr = currentKey.GetBase16();
         keyStr = string(64 - keyStr.length(), '0') + keyStr;
