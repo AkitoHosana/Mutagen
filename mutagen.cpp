@@ -124,7 +124,9 @@ const unordered_map<int, tuple<int, string, string>> PUZZLE_DATA = {
     {66, {35, "20d45a6a762535700ce9e0b216e31994335db8a5", "30568377312064202855"}},
     {67, {31, "739437bb3dd6d1983e66629c5f08c70e52769371", "46346217550346335726"}},
     {68, {42, "e0b8a2baee1b77fc703455f39d51477451fc8cfc", "132656943602386256302"}},
-    {69, {42, "61eb8a50c86b0584bb727dd65bed8d2400d6d5aa", "219898266213316039825"}}
+    {69, {34, "61eb8a50c86b0584bb727dd65bed8d2400d6d5aa", "219898266213316039825"}},
+    {70, {29, "5db8cda53a6a002db10365967d7f85d19e171b10", "297274491920375905804"}},
+    {71, {29, "f6f5431d25bbf7b12e8add9af5e3475c44a0a5b8", "970436974005023690481"}}
 };
 
 vector<unsigned char> TARGET_HASH160_RAW(20);
@@ -648,12 +650,12 @@ void worker(Secp256K1* secp, int bit_length, int flip_count, int threadId, AVXCo
 void printUsage(const char* programName) {
     cout << "Usage: " << programName << " [options]\n";
     cout << "Options:\n";
-    cout << "  -p, --puzzle NUM    Puzzle number to solve (default: 69)\n"; 
+    cout << "  -p, --puzzle NUM    Puzzle number to solve (default: 71)\n"; 
     cout << "  -t, --threads NUM   Number of CPU cores to use (default: all)\n";
     cout << "  -f, --flips NUM     Override default flip count for puzzle\n";
     cout << "  -h, --help          Show this help message\n";
     cout << "\nExample:\n";
-    cout << "  " << programName << " -p 69 -t 8\n"; 
+    cout << "  " << programName << " -p 71 -t 12\n"; 
 }
 
 int main(int argc, char* argv[]) {
@@ -675,8 +677,8 @@ int main(int argc, char* argv[]) {
             case 'p':
                 PUZZLE_NUM = atoi(optarg);
 
-                if (PUZZLE_NUM < 20 || PUZZLE_NUM > 69) {
-                    cerr << "Error: Puzzle number must be between 20 and 69\n"; 
+                if (PUZZLE_NUM < 20 || PUZZLE_NUM > 71) {
+                    cerr << "Error: Puzzle number must be between 20 and 71\n"; 
                     return 1;
                 }
                 break;
@@ -766,8 +768,8 @@ int main(int argc, char* argv[]) {
     }
     cout << "\n";
 
-    if (PUZZLE_NUM == 69 && FLIP_COUNT == 35) { 
-        cout << "*** WARNING: Flip count is an ESTIMATE for Puzzle 69 and might be incorrect! ***\n";
+    if (PUZZLE_NUM == 71 && FLIP_COUNT == 29) { 
+        cout << "*** WARNING: Flip count is an ESTIMATE for Puzzle 71 and might be incorrect! ***\n";
     }
     cout << "Total Flips: " << to_string_128(total_combinations) << "\n";
     cout << "Using: " << WORKERS << " threads\n";
