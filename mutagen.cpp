@@ -71,8 +71,8 @@ int PUZZLE_NUM = 20;
 int WORKERS = omp_get_num_procs();
 int FLIP_COUNT = -1; 
 const __uint128_t REPORT_INTERVAL = 10000000;
-static constexpr int POINTS_BATCH_SIZE = 256;
-static constexpr int HASH_BATCH_SIZE = 8;
+static constexpr int POINTS_BATCH_SIZE = 512;
+static constexpr int HASH_BATCH_SIZE = 16;
 
 const unordered_map<int, tuple<int, string, string>> PUZZLE_DATA = {
     {20, {8, "b907c3a2a3b27789dfb509b730dd47703c272868",  "357535"}}, 
@@ -320,7 +320,7 @@ private:
     }
 };
 
-inline void prepareShaBlock(const uint8_t* dataSrc, __uint128_t dataLen, uint8_t* outBlock) {
+inline void prepareShaBlock(const uint8_t* dataSrc, size_t dataLen, uint8_t* outBlock) {
     std::fill_n(outBlock, 64, 0);
     std::memcpy(outBlock, dataSrc, dataLen);
     outBlock[dataLen] = 0x80;
@@ -343,70 +343,63 @@ inline void prepareRipemdBlock(const uint8_t* dataSrc, uint8_t* outBlock) {
 }
 
 static void computeHash160BatchBinSingle(int numKeys,
-                                       uint8_t pubKeys[][33],
-                                       uint8_t hashResults[][20])
+                                         uint8_t pubKeys[][33],
+                                         uint8_t hashResults[][20])
 {
     alignas(32) std::array<std::array<uint8_t, 64>, HASH_BATCH_SIZE> shaInputs;
     alignas(32) std::array<std::array<uint8_t, 32>, HASH_BATCH_SIZE> shaOutputs;
     alignas(32) std::array<std::array<uint8_t, 64>, HASH_BATCH_SIZE> ripemdInputs;
     alignas(32) std::array<std::array<uint8_t, 20>, HASH_BATCH_SIZE> ripemdOutputs;
-    const __uint128_t totalBatches = (numKeys + (HASH_BATCH_SIZE - 1)) / HASH_BATCH_SIZE;
-    for (__uint128_t batch = 0; batch < totalBatches; batch++) {
-        const __uint128_t batchCount = std::min<__uint128_t>(HASH_BATCH_SIZE, numKeys - batch * HASH_BATCH_SIZE);
 
-        for (__uint128_t i = 0; i < batchCount; i++) {
-            prepareShaBlock(pubKeys[batch * HASH_BATCH_SIZE + i], 33, shaInputs[i].data());
+    const int totalB = (numKeys + (HASH_BATCH_SIZE - 1)) / HASH_BATCH_SIZE;
+    for(int b=0; b<totalB; ++b){
+        const int bCount = std::min(HASH_BATCH_SIZE, numKeys - b * HASH_BATCH_SIZE);
+
+        prepareShaBlock(pubKeys[b * HASH_BATCH_SIZE], 33, shaInputs[0].data());
+        for(int i=1; i<bCount; ++i){
+            const int idx = b * HASH_BATCH_SIZE + i;
+            prepareShaBlock(pubKeys[idx], 33, shaInputs[i].data());
         }
+        for(int i=bCount; i<HASH_BATCH_SIZE; ++i)
+            memcpy(shaInputs[i].data(), shaInputs[0].data(), 64);
 
-        if (batchCount < HASH_BATCH_SIZE) {
-            static std::array<uint8_t, 64> shaPadding = {};
-            prepareShaBlock(pubKeys[0], 33, shaPadding.data());
-            for (__uint128_t i = batchCount; i < HASH_BATCH_SIZE; i++) {
-                std::memcpy(shaInputs[i].data(), shaPadding.data(), 64);
-            }
-        }
-
-        const uint8_t* inPtr[HASH_BATCH_SIZE];
-        uint8_t* outPtr[HASH_BATCH_SIZE];
-        for (int i = 0; i < HASH_BATCH_SIZE; i++) {
+        alignas(32) const uint8_t* inPtr[HASH_BATCH_SIZE];
+        alignas(32) uint8_t* outPtr[HASH_BATCH_SIZE];
+        for(int i=0; i<HASH_BATCH_SIZE; ++i){
             inPtr[i]  = shaInputs[i].data();
             outPtr[i] = shaOutputs[i].data();
         }
 
-        sha256avx2_8B(inPtr[0], inPtr[1], inPtr[2], inPtr[3],
-                      inPtr[4], inPtr[5], inPtr[6], inPtr[7],
-                      outPtr[0], outPtr[1], outPtr[2], outPtr[3],
-                      outPtr[4], outPtr[5], outPtr[6], outPtr[7]);
+        for(int Block=0; Block<HASH_BATCH_SIZE; Block+=8)
+            sha256avx2_8B(inPtr[Block+0],inPtr[Block+1],inPtr[Block+2],inPtr[Block+3],
+                          inPtr[Block+4],inPtr[Block+5],inPtr[Block+6],inPtr[Block+7],
+                          outPtr[Block+0],outPtr[Block+1],outPtr[Block+2],outPtr[Block+3],
+                          outPtr[Block+4],outPtr[Block+5],outPtr[Block+6],outPtr[Block+7]);
 
-        for (__uint128_t i = 0; i < batchCount; i++) {
+        prepareRipemdBlock(shaOutputs[0].data(), ripemdInputs[0].data());
+        for(int i=1; i<bCount; ++i)
             prepareRipemdBlock(shaOutputs[i].data(), ripemdInputs[i].data());
-        }
+        for(int i=bCount; i<HASH_BATCH_SIZE; ++i)
+            memcpy(ripemdInputs[i].data(), ripemdInputs[0].data(), 64);
 
-        if (batchCount < HASH_BATCH_SIZE) {
-            static std::array<uint8_t, 64> ripemdPadding = {};
-            prepareRipemdBlock(shaOutputs[0].data(), ripemdPadding.data());
-            for (__uint128_t i = batchCount; i < HASH_BATCH_SIZE; i++) {
-                std::memcpy(ripemdInputs[i].data(), ripemdPadding.data(), 64);
-            }
-        }
-
-        for (int i = 0; i < HASH_BATCH_SIZE; i++) {
+        for(int i=0; i<HASH_BATCH_SIZE; ++i){
             inPtr[i]  = ripemdInputs[i].data();
-            outPtr[i] = ripemdOutputs[i].data();
+            outPtr[i] = reinterpret_cast<uint8_t*>(ripemdOutputs[i].data());
         }
 
-        ripemd160avx2::ripemd160avx2_32(
-            (unsigned char*)inPtr[0], (unsigned char*)inPtr[1],
-            (unsigned char*)inPtr[2], (unsigned char*)inPtr[3],
-            (unsigned char*)inPtr[4], (unsigned char*)inPtr[5],
-            (unsigned char*)inPtr[6], (unsigned char*)inPtr[7],
-            outPtr[0], outPtr[1], outPtr[2], outPtr[3],
-            outPtr[4], outPtr[5],
-            outPtr[6], outPtr[7]
-        );
+        for(int Block=0; Block<HASH_BATCH_SIZE; Block+=8)
+            ripemd160avx2::ripemd160avx2_32(
+                (unsigned char*)inPtr [Block+0],(unsigned char*)inPtr [Block+1],
+                (unsigned char*)inPtr [Block+2],(unsigned char*)inPtr [Block+3],
+                (unsigned char*)inPtr [Block+4],(unsigned char*)inPtr [Block+5],
+                (unsigned char*)inPtr [Block+6],(unsigned char*)inPtr [Block+7],
+                outPtr [Block+0], outPtr [Block+1], outPtr [Block+2], outPtr [Block+3],
+                outPtr [Block+4], outPtr [Block+5], outPtr [Block+6], outPtr [Block+7]
+            );
 
-        for (__uint128_t i = 0; i < batchCount; i++) {
-            std::memcpy(hashResults[batch * HASH_BATCH_SIZE + i], ripemdOutputs[i].data(), 20);
+        for(int i=0; i<bCount; ++i){
+            const int idx = b * HASH_BATCH_SIZE + i;
+            memcpy(hashResults[idx], ripemdOutputs[i].data(), 20);
         }
     }
 }
