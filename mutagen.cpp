@@ -575,13 +575,13 @@ void worker(Secp256K1* secp, int bit_length, int flip_count, int threadId, AVXCo
                             Int foundKey;
                             foundKey.Set(&currentKey);
                             int idx = pointIndices[j];
-                            if (idx < 256) {
+                            if (idx < 512) {
                                 Int offset;
                                 offset.SetInt32(idx);
                                 foundKey.Add(&offset);
                             } else {
                                 Int offset;
-                                offset.SetInt32(idx - 256);
+                                offset.SetInt32(idx - 512);
                                 foundKey.Sub(&offset);
                             }
 
